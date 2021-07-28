@@ -1,6 +1,8 @@
 #include<functional>
 #include<algorithm>
 #include<numeric>
+#include<thread>
+#include<mutex>
 
 #include<opencv2/opencv.hpp>
 #include<MeveralUse_HeadersUsual.h>
@@ -22,6 +24,10 @@ using std::cin;
 using std::cout;
 using std::endl;
 using namespace Meveral;
+
+vector<std::thread> threads(10);
+std::mutex m;
+
 
 Light light1(Meveral::Vector3f(20, 20, 20), Meveral::Vector3f(500, 500, 500));
 Light light2(Meveral::Vector3f(-20, 20, 0), Meveral::Vector3f(500, 500, 500));
@@ -160,8 +166,21 @@ int main(int argc, char*argv[])
 		r.setView(getViewMatrix(eyePos));
 		r.setProjection(getProjectionMatrix(eyeFov, aspectRatio, zNear, zFar));
 
+		int step = TriangleList.size() / threads.size();
+		auto left = TriangleList.begin();
+		for (int i = 0; i < threads.size() - 1; ++i)
+		{
+			auto right = left + step;
+			std::vector<Triangle*> Triangles1(left, right);
+			threads[i] = std::thread(draw, std::ref(r), Triangles1);
+			left += step;
+		}
+		std::vector<Triangle*> Triangles1(left, TriangleList.end());
+		threads.back() = std::thread(draw,std::ref(r), Triangles1);
+		for (auto&it : threads)
+			if(it.joinable())
+				it.join();
 
-		r.draw(TriangleList);
 
 		cv::Mat image(r.width(), r.height(), CV_32FC3, r.frameBuffer().data());
 		image.convertTo(image, CV_8UC3);
@@ -181,7 +200,20 @@ int main(int argc, char*argv[])
 		r.setView(getViewMatrix(eyePos));
 		r.setProjection(getProjectionMatrix(eyeFov, aspectRatio, zNear, zFar));
 
-		r.draw(TriangleList);
+		int step = TriangleList.size() / threads.size();
+		auto left = TriangleList.begin();
+		for (int i = 0; i < threads.size() - 1; ++i)
+		{
+			auto right = left + step;
+			std::vector<Triangle*> Triangles1(left, right);
+			threads[i] = std::thread(draw, std::ref(r), Triangles1);
+			left = right;
+		}
+		std::vector<Triangle*> Triangles1(left, TriangleList.end());
+		threads.back() = std::thread(draw, std::ref(r), Triangles1);
+		for (auto&it : threads)
+			if (it.joinable())
+				it.join();
 
 		cv::Mat image(r.width(), r.height(), CV_32FC3, r.frameBuffer().data());
 		image.convertTo(image, CV_8UC3);

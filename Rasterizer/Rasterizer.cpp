@@ -1,11 +1,12 @@
 #include "Rasterizer.h"
 #include<tuple>
 
+
 #if 1
-
 #include<fstream>
-
 #endif 
+
+extern std::mutex m;
 
 void Rasterizer::clear(const Buffers&buff)
 {
@@ -19,10 +20,37 @@ void Rasterizer::clear(const Buffers&buff)
 	}
 }
 
-void Rasterizer::draw(std::vector<Triangle*>& triangleList)
+
+
+
+
+std::tuple<float, float, float> computeBarycentric2D(float x, float y, const Meveral::Vector3f* v)
 {
-	Meveral::Matrix4f MV = view * model;
-	Meveral::Matrix4f MVP = projection * MV;
+	float c1 = (x*(v[1].y() - v[2].y()) + (v[2].x() - v[1].x())*y + v[1].x()*v[2].y() - v[2].x()*v[1].y()) / (v[0].x()*(v[1].y() - v[2].y()) + (v[2].x() - v[1].x())*v[0].y() + v[1].x()*v[2].y() - v[2].x()*v[1].y());
+	float c2 = (x*(v[2].y() - v[0].y()) + (v[0].x() - v[2].x())*y + v[2].x()*v[0].y() - v[0].x()*v[2].y()) / (v[1].x()*(v[2].y() - v[0].y()) + (v[0].x() - v[2].x())*v[1].y() + v[2].x()*v[0].y() - v[0].x()*v[2].y());
+	float c3 = (x*(v[0].y() - v[1].y()) + (v[1].x() - v[0].x())*y + v[0].x()*v[1].y() - v[1].x()*v[0].y()) / (v[2].x()*(v[0].y() - v[1].y()) + (v[1].x() - v[0].x())*v[2].y() + v[0].x()*v[1].y() - v[1].x()*v[0].y());
+
+	return { c1,c2,c3 };
+}
+
+inline Meveral::Vector2f interpolate(const Meveral::Vector2f* v, float a, float b, float g)
+{
+	return v[0] * a + v[1] * b + v[2] * g;
+}
+
+inline Meveral::Vector3f interpolate(const Meveral::Vector3f*v, float a, float b, float g)
+{
+	return v[0] * a + v[1] * b + v[2] * g;
+}
+
+void draw(Rasterizer&r,std::vector<Triangle*> triangleList)
+{
+
+	if (triangleList.empty())
+		return;
+
+	Meveral::Matrix4f MV = r.view * r.model;
+	Meveral::Matrix4f MVP = r.projection * MV;
 	Meveral::Matrix4f inverseTranspose = MV.invert().transpose();
 
 	//	std::cout << "MV:\n"; 
@@ -65,8 +93,8 @@ void Rasterizer::draw(std::vector<Triangle*>& triangleList)
 			tmp[3] = 1;
 			tmp = MVP * tmp;
 			homogeneous(tmp);
-			tmp.x() = 0.5*_width*(tmp.x() + 1.f);
-			tmp.y() = 0.5*_width*(tmp.y() + 1.f);
+			tmp.x() = 0.5*r._width*(tmp.x() + 1.f);
+			tmp.y() = 0.5*r._width*(tmp.y() + 1.f);
 			//			std::cout << "Vertex[" << i << "]:\t";
 			//			tmp.print();
 			//			std::cout << std::endl;
@@ -103,15 +131,14 @@ void Rasterizer::draw(std::vector<Triangle*>& triangleList)
 //		newTriangle.setColor(1, Meveral::Vector3f(200, 0, 0));
 //		newTriangle.setColor(2, Meveral::Vector3f(200, 0, 0));
 
-		rasterizeTriangle(newTriangle, viewspacePos);
+		rasterizeTriangle(r,newTriangle, viewspacePos);
 	}
 	//	file.close();
 }
 
-
-
-void Rasterizer::rasterizeTriangle(const Triangle &t, std::array<Meveral::Vector4f, 3>&viewspacePos)
+void rasterizeTriangle(Rasterizer&r, const Triangle &t, std::array<Meveral::Vector4f, 3>&viewspacePos)
 {
+
 	const auto& v = t.vertices;
 	int x_left = std::min({ v[0].x(),v[1].x(),v[2].x() });
 	int x_right = std::max({ v[0].x(),v[1].x(),v[2].x() });
@@ -134,9 +161,11 @@ void Rasterizer::rasterizeTriangle(const Triangle &t, std::array<Meveral::Vector
 
 				float zInterpolated = alpha * v[0].z() + beta * v[1].z() + gamma * v[2].z();
 				zInterpolated *= Z;
-				if (std::abs(zInterpolated) < std::abs(depthBuf[y*width() + x]))
+
+				m.lock();
+				if (std::abs(zInterpolated) < std::abs(r.depthBuf[y*r.width() + x]))
 				{
-					this->setDepth(x,y, zInterpolated);
+					r.setDepth(x,y, zInterpolated);
 
 					Meveral::Vector3f normalInterpolated = interpolate(t.normals, alpha, beta, gamma);
 					normalInterpolated = normalInterpolated * Z;
@@ -153,35 +182,16 @@ void Rasterizer::rasterizeTriangle(const Triangle &t, std::array<Meveral::Vector
 					viewspacePosInterpolated.z() = viewspacePos[0].z() * alpha + viewspacePos[1].z() * beta + viewspacePos[2].z()* gamma;
 
 
-					fragmentShaderPayload payload(viewspacePosInterpolated, colorInterpolated, normalInterpolated, texCoordsInterpolated, texture ? &*texture : nullptr);
-					Meveral::Vector3f color = fragmentShader(payload);
-					this->setColor(x, _height - y, color);
+					fragmentShaderPayload payload(viewspacePosInterpolated, colorInterpolated, normalInterpolated, texCoordsInterpolated, r.texture ? &*r.texture : nullptr);
+					Meveral::Vector3f color = r.fragmentShader(payload);
+					r.setColor(x, r._height - y, color);
 				}
+				m.unlock();
 			}
 		}
 	}
 
 
 //	file.close();
-
-
 }
 
-std::tuple<float, float, float> computeBarycentric2D(float x, float y, const Meveral::Vector3f* v)
-{
-	float c1 = (x*(v[1].y() - v[2].y()) + (v[2].x() - v[1].x())*y + v[1].x()*v[2].y() - v[2].x()*v[1].y()) / (v[0].x()*(v[1].y() - v[2].y()) + (v[2].x() - v[1].x())*v[0].y() + v[1].x()*v[2].y() - v[2].x()*v[1].y());
-	float c2 = (x*(v[2].y() - v[0].y()) + (v[0].x() - v[2].x())*y + v[2].x()*v[0].y() - v[0].x()*v[2].y()) / (v[1].x()*(v[2].y() - v[0].y()) + (v[0].x() - v[2].x())*v[1].y() + v[2].x()*v[0].y() - v[0].x()*v[2].y());
-	float c3 = (x*(v[0].y() - v[1].y()) + (v[1].x() - v[0].x())*y + v[0].x()*v[1].y() - v[1].x()*v[0].y()) / (v[2].x()*(v[0].y() - v[1].y()) + (v[1].x() - v[0].x())*v[2].y() + v[0].x()*v[1].y() - v[1].x()*v[0].y());
-
-	return { c1,c2,c3 };
-}
-
-inline Meveral::Vector2f interpolate(const Meveral::Vector2f* v, float a, float b, float g)
-{
-	return v[0] * a + v[1] * b + v[2] * g;
-}
-
-inline Meveral::Vector3f interpolate(const Meveral::Vector3f*v, float a, float b, float g)
-{
-	return v[0] * a + v[1] * b + v[2] * g;
-}

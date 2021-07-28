@@ -19,6 +19,9 @@ inline Buffers operator|(const Buffers&lhs, const Buffers&rhs) { return Buffers(
 
 class Rasterizer {
 public:
+	friend void draw(Rasterizer&r, std::vector<Triangle*>triangleList);
+	friend void rasterizeTriangle(Rasterizer&r, const Triangle&,std::array<Meveral::Vector4f,3>&);
+public:
 	Rasterizer() = delete;
 	Rasterizer(int w, int h) :_width(w), _height(h) { frameBuf.resize(w*h); depthBuf.resize(w*h), texture = std::nullopt; };
 	~Rasterizer() {};
@@ -35,14 +38,12 @@ public:
 	void clear(const Buffers&buff);
 	std::vector<Meveral::Vector3f>& frameBuffer() { return frameBuf; };
 	std::vector<float>& depthBuffer() { return depthBuf; };
-	void draw(std::vector<Triangle*>&triangleList);
 	void setColor(int x, int y, const Meveral::Vector3f color) { frameBuf[x + y * _width] = color; }
 	void setDepth (int x, int y, float dep) { depthBuf[x + y * _width] = dep; }
 
 	int width() { return this->_width; };
 	int height() { return this->_height; };
 private:
-	void rasterizeTriangle(const Triangle&,std::array<Meveral::Vector4f,3>&);
 private:
 	Meveral::Matrix4f model;
 	Meveral::Matrix4f view;
@@ -66,5 +67,9 @@ Meveral::Vector2f interpolate(const Meveral::Vector2f*,float,float,float);
 
 Meveral::Vector3f interpolate(const Meveral::Vector3f*,float,float,float);
 
+
+void draw(Rasterizer&r, std::vector<Triangle*>triangleList);
+
+void rasterizeTriangle(Rasterizer&r, const Triangle&,std::array<Meveral::Vector4f,3>&);
 
 
